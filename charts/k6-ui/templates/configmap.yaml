@@ -6,4 +6,4 @@ metadata:
     {{- include "k6-ui.labels" . | nindent 4 }}
 data:
   catalog.yaml: |
-    {{- toYaml .Values.catalog.content | nindent 4 }}
+    {{- toYaml (required "catalog.content is required" .Values.catalog.content) | nindent 4 }}

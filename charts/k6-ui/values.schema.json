@@ -167,11 +167,11 @@
       "properties": {
         "tenantId": {
           "type": "string",
-          "pattern": "^[0-9a-fA-F]{8}(-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}$"
+          "pattern": "^$|^[0-9a-fA-F]{8}(-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}$"
         },
         "clientId": {
           "type": "string",
-          "pattern": "^[0-9a-fA-F]{8}(-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}$"
+          "pattern": "^$|^[0-9a-fA-F]{8}(-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}$"
         }
       }
     },
@@ -194,31 +194,39 @@
       "type": "object",
       "properties": {
         "content": {
-          "additionalProperties": false,
-          "properties": {
-            "tests": {
-              "items": {
-                "$ref": "#/$defs/Test"
-              },
-              "minItems": 1,
-              "title": "Tests",
-              "type": "array"
+          "anyOf": [
+            {
+              "type": "object",
+              "maxProperties": 0
             },
-            "environments": {
-              "items": {
-                "$ref": "#/$defs/Environment"
+            {
+              "additionalProperties": false,
+              "properties": {
+                "tests": {
+                  "items": {
+                    "$ref": "#/$defs/Test"
+                  },
+                  "minItems": 1,
+                  "title": "Tests",
+                  "type": "array"
+                },
+                "environments": {
+                  "items": {
+                    "$ref": "#/$defs/Environment"
+                  },
+                  "minItems": 1,
+                  "title": "Environments",
+                  "type": "array"
+                }
               },
-              "minItems": 1,
-              "title": "Environments",
-              "type": "array"
+              "required": [
+                "tests",
+                "environments"
+              ],
+              "title": "Catalog",
+              "type": "object"
             }
-          },
-          "required": [
-            "tests",
-            "environments"
-          ],
-          "title": "Catalog",
-          "type": "object"
+          ]
         }
       }
     }
