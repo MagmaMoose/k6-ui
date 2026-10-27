@@ -33,5 +33,6 @@ jobs:
         run: |
           if grep -qE '<style|style=|<script>[^<]' frontend/dist/index.html; then exit 1; fi
       - uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
+      - run: helm lint charts/k6-ui
       - run: helm lint charts/k6-ui --values charts/k6-ui/ci/default-values.yaml
       - run: helm template k6-ui charts/k6-ui --namespace k6-ui --values charts/k6-ui/ci/default-values.yaml > /tmp/k6-ui.yaml
