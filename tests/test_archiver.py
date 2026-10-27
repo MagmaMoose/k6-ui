@@ -38,7 +38,7 @@ def test_web_requests_archive_from_loopback(monkeypatch):
     monkeypatch.setenv("HTTPS_PROXY", "https://invalid.example.com")
 
     def respond(request):
-        assert request.url == "http://127.0.0.1:8081/archive"
+        assert request.url == "http://127.0.0.1:8081/archive"  # DevSkim: ignore DS162092 - asserts the production loopback boundary
         assert b'"script":"smoke.js"' in request.content
         assert b'"VUS":"1000"' in request.content
         return httpx.Response(200, content=b"archive")

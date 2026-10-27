@@ -38,4 +38,4 @@ def create_archiver(root: Path, builder=archive):
 
 
 if __name__ == "__main__":
-    uvicorn.run(create_archiver(Path(os.environ.get("K6_UI_SCRIPTS_DIR", "/scripts"))), host="127.0.0.1", port=8081, access_log=False)
+    uvicorn.run(create_archiver(Path(os.environ.get("K6_UI_SCRIPTS_DIR", "/scripts"))), host="127.0.0.1", port=8081, access_log=False)  # DevSkim: ignore DS162092 - production API accepts only pod-local requests

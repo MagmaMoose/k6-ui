@@ -145,7 +145,7 @@ spec:
           command: [python, -m, k6_ui.archiver]
           readinessProbe:
             exec:
-              command: [python, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8081/healthz', timeout=2)"]
+              command: [python, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8081/healthz', timeout=2)"] # DevSkim: ignore DS162092 - readiness checks the pod-local production API
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true

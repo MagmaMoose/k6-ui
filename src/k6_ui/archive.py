@@ -15,7 +15,7 @@ class ArchiveError(Exception):
 async def request_archive(_root: Path, script: str, variables: dict[str, str], transport=None) -> bytes:
     try:
         async with httpx.AsyncClient(transport=transport, timeout=70, trust_env=False) as client:
-            response = await client.post("http://127.0.0.1:8081/archive", json={"script": script, "variables": variables})
+            response = await client.post("http://127.0.0.1:8081/archive", json={"script": script, "variables": variables})  # DevSkim: ignore DS162092 - production sidecar stays on pod loopback
     except httpx.HTTPError as err:
         raise ArchiveError("The script archiver is unavailable.") from err
     if response.status_code != 200:
