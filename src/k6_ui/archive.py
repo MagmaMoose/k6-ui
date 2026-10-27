@@ -3,11 +3,26 @@ import os
 import tempfile
 from pathlib import Path
 
+import httpx
+
 MAX_ARCHIVE_BYTES = 700000
 
 
 class ArchiveError(Exception):
     pass
+
+
+async def request_archive(_root: Path, script: str, variables: dict[str, str], transport=None) -> bytes:
+    try:
+        async with httpx.AsyncClient(transport=transport, timeout=70, trust_env=False) as client:
+            response = await client.post("http://127.0.0.1:8081/archive", json={"script": script, "variables": variables})  # DevSkim: ignore DS162092 - production sidecar stays on pod loopback
+    except httpx.HTTPError as err:
+        raise ArchiveError("The script archiver is unavailable.") from err
+    if response.status_code != 200:
+        raise ArchiveError("The defined script could not be bundled. Check its imports and configuration.")
+    if not response.content or len(response.content) > MAX_ARCHIVE_BYTES:
+        raise ArchiveError("Script archive exceeds the 700000-byte ConfigMap limit.")
+    return response.content
 
 
 async def archive(root: Path, script: str, variables: dict[str, str]) -> bytes:

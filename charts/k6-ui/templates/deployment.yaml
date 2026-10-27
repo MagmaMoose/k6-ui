@@ -18,7 +18,7 @@ spec:
         checksum/config: {{ toYaml (dict "config" .Values.config "catalog" .Values.catalog "branding" .Values.branding "azure" .Values.azure) | sha256sum }}
     spec:
       serviceAccountName: {{ include "k6-ui.serviceAccountName" . }}
-      automountServiceAccountToken: true
+      automountServiceAccountToken: false
       {{- with .Values.imagePullSecrets }}
       imagePullSecrets:
         {{- toYaml . | nindent 8 }}
@@ -114,6 +114,9 @@ spec:
               value: {{ $value | quote }}
             {{- end }}
           volumeMounts:
+            - name: kube-token
+              mountPath: /var/run/secrets/kubernetes.io/serviceaccount
+              readOnly: true
             - name: config
               mountPath: /etc/k6-ui
               readOnly: true
@@ -137,10 +140,46 @@ spec:
               mountPath: /etc/k6-ui-azure
               readOnly: true
             {{- end }}
+        - name: archiver
+          image: {{ include "k6-ui.image" . | quote }}
+          command: [python, -m, k6_ui.archiver]
+          readinessProbe:
+            exec:
+              command: [python, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8081/healthz', timeout=2)"] # DevSkim: ignore DS162092 - readiness checks the pod-local production API
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          env:
+            - name: K6_UI_SCRIPTS_DIR
+              value: /scripts
+          volumeMounts:
+            - name: scripts
+              mountPath: /scripts
+              readOnly: true
+              {{- if .Values.scripts.subPath }}
+              subPath: {{ .Values.scripts.subPath | quote }}
+              {{- end }}
+            - name: archive-tmp
+              mountPath: /tmp
         {{- with .Values.extraContainers }}
         {{- toYaml . | nindent 8 }}
         {{- end }}
       volumes:
+        - name: kube-token
+          projected:
+            sources:
+              - serviceAccountToken:
+                  expirationSeconds: 3600
+                  path: token
+              - configMap:
+                  name: kube-root-ca.crt
+                  items:
+                    - key: ca.crt
+                      path: ca.crt
         - name: config
           configMap:
             name: {{ $name }}-config
@@ -148,8 +187,11 @@ spec:
           secret:
             secretName: {{ include "k6-ui.sessionSecret" . }}
         - name: scripts
-          {{- toYaml .Values.scripts.volume | nindent 10 }}
+          {{- toYaml (default (dict "emptyDir" dict) .Values.scripts.volume) | nindent 10 }}
         - name: tmp
+          emptyDir:
+            sizeLimit: 128Mi
+        - name: archive-tmp
           emptyDir:
             sizeLimit: 128Mi
         {{- if .Values.azure.workloadIdentity.enabled }}

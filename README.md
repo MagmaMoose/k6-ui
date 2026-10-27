@@ -8,7 +8,7 @@ The same console works for services inside Kubernetes and targets outside it. Ta
 
 A FastAPI backend serves a React/TypeScript frontend. Microsoft Entra ID signs people in through authorization code flow with PKCE. Encrypted, expiring cookies work across replicas. Every operation checks Kubernetes RBAC for the signed-in user and groups; optional catalog groups narrow access further.
 
-Before creating a `k6.io/v1alpha1` TestRun, the server runs `k6 archive` with the chosen `VUS`, `RAMP`, `DURATION` and `RAMP_DOWN`. k6 freezes script options during archiving, so setting them only on runner pods would run the wrong load. The archiver receives a clean process environment and no credentials. Runner pods receive credentials through `envFrom.secretRef`; the server has no Secret-read permission.
+Before creating a `k6.io/v1alpha1` TestRun, a separate archiver container runs `k6 archive` with the chosen `VUS`, `RAMP`, `DURATION` and `RAMP_DOWN`. k6 freezes script options during archiving, so setting them only on runner pods would run the wrong load. The archiver receives a clean process environment and mounts only scripts and temporary storage. Kubernetes tokens, sign-in credentials and session keys are mounted only in the web container. Its loopback archive endpoint is not exposed by the Service or Ingress. Runner pods receive credentials through `envFrom.secretRef`; the server has no Secret-read permission.
 
 The archive, including relative imports, reaches the operator through a ConfigMap. Run IDs become `testid` tags. The cluster's existing k6 platform configuration supplies remote write and target routing. The console saves all runner exit codes and bounded output before deleting the TestRun and its pods. A failed threshold is a failed test. History stays in Kubernetes for seven days by default, survives restarts, and is then removed automatically. Cancelling retains the run record.
 
@@ -90,7 +90,7 @@ npm ci --ignore-scripts
 npm run build
 ```
 
-`docker buildx bake app-local` builds one local image with the frontend, backend and k6 archiver. Run it with your catalog, trusted scripts, identity configuration and Kubernetes API credentials. HTTP public origins are accepted only on loopback during local development. Access logging is disabled so authorization codes never enter web logs.
+`docker buildx bake app-local` builds one local image used by the web and archiver containers. The Helm chart separates their mounts. For local Python development, run `python -m k6_ui.archiver` alongside the web server with `K6_UI_SCRIPTS_DIR` set to your scripts directory. HTTP public origins are accepted only on loopback during local development. Access logging is disabled so authorization codes never enter web logs.
 
 The release workflow publishes `ghcr.io/magmamoose/k6-ui` and the OCI Helm chart `ghcr.io/magmamoose/charts/k6-ui`. Release versions come from Git tags and appear in the console.
 

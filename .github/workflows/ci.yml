@@ -36,3 +36,6 @@ jobs:
       - run: helm lint charts/k6-ui
       - run: helm lint charts/k6-ui --values charts/k6-ui/ci/default-values.yaml
       - run: helm template k6-ui charts/k6-ui --namespace k6-ui --values charts/k6-ui/ci/default-values.yaml > /tmp/k6-ui.yaml
+      - run: uv run python tests/check_chart.py /tmp/k6-ui.yaml
+      - run: helm template k6-ui charts/k6-ui --namespace k6-ui --values charts/k6-ui/ci/default-values.yaml --set scripts.volume.configMap.name=loadtest-scripts > /tmp/k6-ui-mounted-scripts.yaml
+      - run: uv run python tests/check_chart.py /tmp/k6-ui-mounted-scripts.yaml
