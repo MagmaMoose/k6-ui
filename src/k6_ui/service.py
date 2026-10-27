@@ -8,7 +8,7 @@ import secrets
 from datetime import UTC, datetime, timedelta
 from urllib.parse import urlencode
 
-from .archive import archive
+from .archive import request_archive
 from .config import Config, Profile, NAME
 from .kube import Kube, KubeError
 
@@ -32,7 +32,7 @@ def runs(ns):
 
 
 class Console:
-    def __init__(self, cfg: Config, kube: Kube, bundle=archive):
+    def __init__(self, cfg: Config, kube: Kube, bundle=request_archive):
         self.cfg, self.kube, self.bundle = cfg, kube, bundle
         self.archivers = asyncio.Semaphore(2)
 
