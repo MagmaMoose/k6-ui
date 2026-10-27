@@ -1,0 +1,9 @@
+apiVersion: v2
+name: k6-ui
+description: Run defined k6 load tests on Kubernetes from your browser
+type: application
+version: 0.0.0
+appVersion: "dev"
+home: https://github.com/MagmaMoose/k6-ui
+sources:
+  - https://github.com/MagmaMoose/k6-ui

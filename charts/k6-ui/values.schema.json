@@ -1,0 +1,226 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$defs": {
+    "Environment": {
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "pattern": "^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$",
+          "title": "Name",
+          "type": "string"
+        },
+        "label": {
+          "maxLength": 120,
+          "minLength": 1,
+          "title": "Label",
+          "type": "string"
+        },
+        "namespace": {
+          "default": "loadtest",
+          "pattern": "^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$",
+          "title": "Namespace",
+          "type": "string"
+        },
+        "secret": {
+          "default": "",
+          "maxLength": 253,
+          "title": "Secret",
+          "type": "string"
+        },
+        "tests": {
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Tests",
+          "type": "array"
+        },
+        "groups": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Groups",
+          "type": "array"
+        },
+        "defaults": {
+          "$ref": "#/$defs/Profile"
+        },
+        "max_vus": {
+          "default": 1000,
+          "maximum": 10000,
+          "minimum": 1,
+          "title": "Max Vus",
+          "type": "integer"
+        },
+        "max_parallelism": {
+          "default": 4,
+          "maximum": 16,
+          "minimum": 1,
+          "title": "Max Parallelism",
+          "type": "integer"
+        },
+        "grafana_url": {
+          "default": "",
+          "title": "Grafana Url",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "label",
+        "tests"
+      ],
+      "title": "Environment",
+      "type": "object"
+    },
+    "Profile": {
+      "additionalProperties": false,
+      "properties": {
+        "vus": {
+          "default": 20,
+          "maximum": 10000,
+          "minimum": 1,
+          "title": "Vus",
+          "type": "integer"
+        },
+        "parallelism": {
+          "default": 1,
+          "maximum": 16,
+          "minimum": 1,
+          "title": "Parallelism",
+          "type": "integer"
+        },
+        "ramp": {
+          "default": "30s",
+          "title": "Ramp",
+          "type": "string"
+        },
+        "duration": {
+          "default": "2m",
+          "title": "Duration",
+          "type": "string"
+        },
+        "ramp_down": {
+          "default": "20s",
+          "title": "Ramp Down",
+          "type": "string"
+        }
+      },
+      "title": "Profile",
+      "type": "object"
+    },
+    "Test": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "pattern": "^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$",
+          "title": "Id",
+          "type": "string"
+        },
+        "label": {
+          "maxLength": 120,
+          "minLength": 1,
+          "title": "Label",
+          "type": "string"
+        },
+        "description": {
+          "default": "",
+          "maxLength": 500,
+          "title": "Description",
+          "type": "string"
+        },
+        "script": {
+          "maxLength": 300,
+          "minLength": 1,
+          "title": "Script",
+          "type": "string"
+        },
+        "env": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "Env",
+          "type": "object"
+        }
+      },
+      "required": [
+        "id",
+        "label",
+        "script"
+      ],
+      "title": "Test",
+      "type": "object"
+    }
+  },
+  "type": "object",
+  "properties": {
+    "replicaCount": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "azure": {
+      "type": "object",
+      "required": [
+        "tenantId",
+        "clientId"
+      ],
+      "properties": {
+        "tenantId": {
+          "type": "string",
+          "pattern": "^[0-9a-fA-F]{8}(-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}$"
+        },
+        "clientId": {
+          "type": "string",
+          "pattern": "^[0-9a-fA-F]{8}(-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}$"
+        }
+      }
+    },
+    "config": {
+      "type": "object",
+      "properties": {
+        "sessionHours": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 24
+        },
+        "retentionHours": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 720
+        }
+      }
+    },
+    "catalog": {
+      "type": "object",
+      "properties": {
+        "content": {
+          "additionalProperties": false,
+          "properties": {
+            "tests": {
+              "items": {
+                "$ref": "#/$defs/Test"
+              },
+              "minItems": 1,
+              "title": "Tests",
+              "type": "array"
+            },
+            "environments": {
+              "items": {
+                "$ref": "#/$defs/Environment"
+              },
+              "minItems": 1,
+              "title": "Environments",
+              "type": "array"
+            }
+          },
+          "required": [
+            "tests",
+            "environments"
+          ],
+          "title": "Catalog",
+          "type": "object"
+        }
+      }
+    }
+  }
+}

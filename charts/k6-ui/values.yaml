@@ -1,0 +1,74 @@
+replicaCount: 2
+image:
+  repository: ghcr.io/magmamoose/k6-ui
+  tag: ""
+  digest: ""
+imagePullSecrets: []
+fullnameOverride: ""
+azure:
+  tenantId: ""
+  clientId: ""
+  authorityHost: https://login.microsoftonline.com
+  workloadIdentity:
+    enabled: true
+    audience: api://AzureADTokenExchange
+  clientSecret:
+    existingSecret: ""
+    key: client-secret
+config:
+  publicOrigin: ""
+  sessionHours: 8
+  retentionHours: 168
+  kubernetesUser:
+    claim: preferred_username
+    prefix: "oidc:"
+  kubernetesGroups:
+    claim: groups
+    prefix: "oidc:"
+branding:
+  accent: ""
+  accentText: ""
+  accentDark: ""
+  accentTextDark: ""
+catalog:
+  content: {}
+# Mount an existing volume containing trusted scripts, or supply a source-sync sidecar.
+scripts:
+  volume:
+    emptyDir: {}
+  subPath: ""
+extraContainers: []
+extraVolumes: []
+initContainers: []
+rbac:
+  namespaces: [loadtest]
+session:
+  existingSecret: ""
+  key: session-key
+serviceAccount:
+  create: true
+  name: ""
+service:
+  port: 8080
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  host: ""
+  tls: []
+resources:
+  requests:
+    cpu: 100m
+    memory: 256Mi
+  limits:
+    cpu: "1"
+    memory: 768Mi
+priorityClassName: ""
+nodeSelector: {}
+tolerations: []
+topologySpread:
+  enabled: true
+  whenUnsatisfiable: ScheduleAnyway
+networkPolicy:
+  enabled: true
+  ingressNamespace: kube-system

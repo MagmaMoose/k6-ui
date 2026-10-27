@@ -1,0 +1,170 @@
+{{- $name := include "k6-ui.fullname" . }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "k6-ui.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "k6-ui.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "k6-ui.selectorLabels" . | nindent 8 }}
+      annotations:
+        checksum/config: {{ toYaml (dict "config" .Values.config "catalog" .Values.catalog "branding" .Values.branding "azure" .Values.azure) | sha256sum }}
+    spec:
+      serviceAccountName: {{ include "k6-ui.serviceAccountName" . }}
+      automountServiceAccountToken: true
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.priorityClassName }}
+      priorityClassName: {{ . }}
+      {{- end }}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      {{- if .Values.topologySpread.enabled }}
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: {{ .Values.topologySpread.whenUnsatisfiable }}
+          labelSelector:
+            matchLabels:
+              {{- include "k6-ui.selectorLabels" . | nindent 14 }}
+      {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.initContainers }}
+      initContainers:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: web
+          image: {{ include "k6-ui.image" . | quote }}
+          ports:
+            - name: http
+              containerPort: 8080
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: http
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+          env:
+            - name: K6_UI_PUBLIC_ORIGIN
+              value: {{ required "config.publicOrigin is required" .Values.config.publicOrigin | quote }}
+            - name: K6_UI_CATALOG
+              value: /etc/k6-ui/catalog.yaml
+            - name: K6_UI_SCRIPTS_DIR
+              value: /scripts
+            - name: K6_UI_SESSION_KEY_FILE
+              value: /etc/k6-ui-session/{{ .Values.session.key }}
+            - name: K6_UI_SESSION_HOURS
+              value: {{ .Values.config.sessionHours | quote }}
+            - name: K6_UI_RETENTION_HOURS
+              value: {{ .Values.config.retentionHours | quote }}
+            - name: K6_UI_USERNAME_CLAIM
+              value: {{ .Values.config.kubernetesUser.claim | quote }}
+            - name: K6_UI_USERNAME_PREFIX
+              value: {{ .Values.config.kubernetesUser.prefix | quote }}
+            - name: K6_UI_GROUPS_CLAIM
+              value: {{ .Values.config.kubernetesGroups.claim | quote }}
+            - name: K6_UI_GROUPS_PREFIX
+              value: {{ .Values.config.kubernetesGroups.prefix | quote }}
+            - name: AZURE_TENANT_ID
+              value: {{ required "azure.tenantId is required" .Values.azure.tenantId | quote }}
+            - name: AZURE_CLIENT_ID
+              value: {{ required "azure.clientId is required" .Values.azure.clientId | quote }}
+            - name: AZURE_AUTHORITY_HOST
+              value: {{ .Values.azure.authorityHost | quote }}
+            {{- if .Values.azure.workloadIdentity.enabled }}
+            - name: AZURE_FEDERATED_TOKEN_FILE
+              value: /var/run/azure/tokens/token
+            {{- else }}
+            - name: AZURE_CLIENT_SECRET_FILE
+              value: /etc/k6-ui-azure/{{ .Values.azure.clientSecret.key }}
+            {{- end }}
+            {{- range $env, $value := dict "K6_UI_ACCENT" .Values.branding.accent "K6_UI_ACCENT_TEXT" .Values.branding.accentText "K6_UI_ACCENT_DARK" .Values.branding.accentDark "K6_UI_ACCENT_TEXT_DARK" .Values.branding.accentTextDark }}
+            - name: {{ $env }}
+              value: {{ $value | quote }}
+            {{- end }}
+          volumeMounts:
+            - name: config
+              mountPath: /etc/k6-ui
+              readOnly: true
+            - name: session
+              mountPath: /etc/k6-ui-session
+              readOnly: true
+            - name: scripts
+              mountPath: /scripts
+              readOnly: true
+              {{- if .Values.scripts.subPath }}
+              subPath: {{ .Values.scripts.subPath | quote }}
+              {{- end }}
+            - name: tmp
+              mountPath: /tmp
+            {{- if .Values.azure.workloadIdentity.enabled }}
+            - name: azure-token
+              mountPath: /var/run/azure/tokens
+              readOnly: true
+            {{- else }}
+            - name: azure-secret
+              mountPath: /etc/k6-ui-azure
+              readOnly: true
+            {{- end }}
+        {{- with .Values.extraContainers }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      volumes:
+        - name: config
+          configMap:
+            name: {{ $name }}-config
+        - name: session
+          secret:
+            secretName: {{ include "k6-ui.sessionSecret" . }}
+        - name: scripts
+          {{- toYaml .Values.scripts.volume | nindent 10 }}
+        - name: tmp
+          emptyDir:
+            sizeLimit: 128Mi
+        {{- if .Values.azure.workloadIdentity.enabled }}
+        - name: azure-token
+          projected:
+            sources:
+              - serviceAccountToken:
+                  audience: {{ .Values.azure.workloadIdentity.audience }}
+                  expirationSeconds: 3600
+                  path: token
+        {{- else }}
+        - name: azure-secret
+          secret:
+            secretName: {{ required "azure.clientSecret.existingSecret is required" .Values.azure.clientSecret.existingSecret }}
+        {{- end }}
+        {{- with .Values.extraVolumes }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
