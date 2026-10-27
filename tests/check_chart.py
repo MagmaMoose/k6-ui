@@ -11,5 +11,7 @@ assert {m["name"] for m in containers["archiver"]["volumeMounts"]} == {"scripts"
 assert {v["name"] for v in containers["archiver"]["env"]} == {"K6_UI_SCRIPTS_DIR"}
 assert {"kube-token", "session", "azure-token"} <= {m["name"] for m in containers["web"]["volumeMounts"]}
 assert containers["archiver"]["command"] == ["python", "-m", "k6_ui.archiver"]
+scripts = next(v for v in pod["volumes"] if v["name"] == "scripts")
+assert len(scripts) == 2 and ({"emptyDir", "configMap"} & scripts.keys())
 assert not any(p["port"] == 8081 for r in resources if r and r.get("kind") == "Service" for p in r["spec"]["ports"])
 print("Chart isolates the script archiver from credentials.")

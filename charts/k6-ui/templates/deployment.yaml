@@ -187,7 +187,7 @@ spec:
           secret:
             secretName: {{ include "k6-ui.sessionSecret" . }}
         - name: scripts
-          {{- toYaml .Values.scripts.volume | nindent 10 }}
+          {{- toYaml (default (dict "emptyDir" dict) .Values.scripts.volume) | nindent 10 }}
         - name: tmp
           emptyDir:
             sizeLimit: 128Mi

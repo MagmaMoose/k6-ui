@@ -34,8 +34,7 @@ catalog:
   content: {}
 # Mount an existing volume containing trusted scripts, or supply a source-sync sidecar.
 scripts:
-  volume:
-    emptyDir: {}
+  volume: null
   subPath: ""
 extraContainers: []
 extraVolumes: []
