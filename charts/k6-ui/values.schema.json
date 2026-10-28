@@ -43,7 +43,19 @@
         },
         "targets": {
           "additionalProperties": {
-            "type": "string"
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "items": {
+                  "type": "string"
+                },
+                "maxItems": 20,
+                "minItems": 1,
+                "type": "array"
+              }
+            ]
           },
           "title": "Targets",
           "type": "object"

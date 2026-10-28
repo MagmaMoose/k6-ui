@@ -19,7 +19,7 @@ catalog:
       suites:
       - http
       targets:
-        http: https://app.dev.example.com
+        http: [https://app.dev.example.com, https://api.dev.example.com]
       allowed_hosts:
       - '*.dev.example.com'
       grafana_url: https://grafana.example.com

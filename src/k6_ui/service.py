@@ -114,7 +114,8 @@ class Console:
                               "max_vus": e.max_vus, "max_parallelism": e.max_parallelism,
                               "can_run": await self.allowed(actor, e, "create"), "allowed_hosts": e.allowed_hosts,
                               "tests": [{"id": t.id, "label": t.label, "group": t.group, "description": t.description, "note": t.note,
-                                         "target": e.targets.get(t.id.split("/", 1)[0], "") if t.target else None}
+                                         "target": next(iter(e.choices(t.id)), "") if t.target else None,
+                                         "targets": e.choices(t.id) if t.target else []}
                                         for t in self.scenarios(e)]})
         return found
 
@@ -147,7 +148,7 @@ class Console:
             raise ConsoleError(404, "Test is unavailable in this environment.")
         try:
             env.check_profile(profile)
-            target = target_url(target.strip() or env.targets.get(test.id.split("/", 1)[0], ""), env.allowed_hosts) if test.target else ""
+            target = target_url(target.strip() or next(iter(env.choices(test.id)), ""), env.allowed_hosts) if test.target else ""
         except ValueError as err:
             raise ConsoleError(422, str(err)) from err
         chosen = {test.target: target} if target else {}
