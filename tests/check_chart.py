@@ -1,3 +1,4 @@
+import re
 import sys
 from pathlib import Path
 
@@ -14,4 +15,9 @@ assert containers["archiver"]["command"] == ["python", "-m", "k6_ui.archiver"]
 scripts = next(v for v in pod["volumes"] if v["name"] == "scripts")
 assert len(scripts) == 2 and ({"emptyDir", "configMap"} & scripts.keys())
 assert not any(p["port"] == 8081 for r in resources if r and r.get("kind") == "Service" for p in r["spec"]["ports"])
+label = re.compile(r"(([A-Za-z0-9][-A-Za-z0-9_.]{0,61})?[A-Za-z0-9])?")
+for r in resources:
+    if r:
+        value = r["metadata"].get("labels", {}).get("helm.sh/chart", "")
+        assert label.fullmatch(value), f"{r['kind']} has an invalid helm.sh/chart label: {value}"
 print("Chart isolates the script archiver from credentials.")
