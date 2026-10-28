@@ -5,16 +5,49 @@ import json
 import logging
 import re
 import secrets
+from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
+from fnmatch import fnmatch
+from pathlib import Path, PurePosixPath
 from urllib.parse import urlencode
 
 from .archive import request_archive
-from .config import Config, Profile, NAME
+from .config import Config, Environment, Profile, NAME, target_url
 from .kube import Kube, KubeError
 
 LABEL = "app.kubernetes.io/created-by=k6-ui,app.kubernetes.io/component=record"
 log = logging.getLogger("k6_ui")
 TERMINAL = {"passed", "failed", "cancelled"}
+
+
+@dataclass(frozen=True)
+class Scenario:
+    id: str
+    label: str
+    script: str
+    group: str = ""
+    description: str = ""
+    note: str = ""
+    target: str = ""
+    env: dict[str, str] = field(default_factory=dict)
+    bundle: bool = False
+
+
+def summary(path: Path) -> str:
+    """A script's first comment line, which is how these suites introduce themselves."""
+    try:
+        head = path.read_bytes()[:4096].decode("utf-8", "replace")
+    except OSError:
+        return ""
+    for line in head.splitlines():
+        line = line.strip()
+        if line.startswith("//") or line.startswith("*") and not line.startswith("*/"):
+            text = line.lstrip("/*").strip()
+            if text:
+                return text[:200]
+        elif line and not line.startswith("/*"):
+            return ""
+    return ""
 
 
 class ConsoleError(Exception):
@@ -52,15 +85,37 @@ class Console:
             raise ConsoleError(404, "Environment is unavailable.")
         return env
 
+    def scenarios(self, env: Environment) -> list[Scenario]:
+        root = self.cfg.scripts_dir.resolve()
+        found = [Scenario(id=t.id, label=t.label, script=t.script, description=t.description, target=t.target, env=t.env, bundle=t.bundle)
+                 for t in self.cfg.catalog.tests
+                 if t.id in env.tests and (root / t.script).is_file() and (root / t.script).resolve().is_relative_to(root)]
+        for suite in (s for s in self.cfg.catalog.suites if s.id in env.suites):
+            base = (root / suite.directory).resolve()
+            if not base.is_dir() or not base.is_relative_to(root):
+                continue
+            paths = {p.relative_to(base).as_posix(): p for pattern in suite.include for p in base.glob(pattern)}
+            for rel, path in sorted(paths.items()):
+                if path.is_file() and path.resolve().is_relative_to(root) and not any(fnmatch(rel, x) for x in suite.exclude):
+                    found.append(Scenario(id=f"{suite.id}/{rel}", label=rel.rsplit(".", 1)[0], script=str(PurePosixPath(suite.directory, rel)),
+                                          group=suite.label, description=summary(path), note=suite.note, target=suite.target, env=suite.env,
+                                          bundle=suite.bundle))
+        return found
+
+    def ready(self) -> bool:
+        # Scripts may not exist yet (an empty or unmerged source), so they only decide what the catalog lists.
+        return self.cfg.scripts_dir.is_dir()
+
     async def catalog(self, actor):
         found = []
         for e in self.cfg.catalog.environments:
             if await self.allowed(actor, e, "list"):
                 found.append({"name": e.name, "label": e.label, "defaults": e.defaults.model_dump(),
                               "max_vus": e.max_vus, "max_parallelism": e.max_parallelism,
-                              "can_run": await self.allowed(actor, e, "create"),
-                              "tests": [{"id": t.id, "label": t.label, "description": t.description}
-                                        for t in self.cfg.catalog.tests if t.id in e.tests]})
+                              "can_run": await self.allowed(actor, e, "create"), "allowed_hosts": e.allowed_hosts,
+                              "tests": [{"id": t.id, "label": t.label, "group": t.group, "description": t.description, "note": t.note,
+                                         "target": e.targets.get(t.id.split("/", 1)[0], "") if t.target else None}
+                                        for t in self.scenarios(e)]})
         return found
 
     async def records(self, ns):
@@ -85,20 +140,22 @@ class Console:
             "data": {"run.json": json.dumps(record, separators=(",", ":"))},
         })
 
-    async def start(self, actor, environment, test_id, profile: Profile):
+    async def start(self, actor, environment, test_id, profile: Profile, target: str = ""):
         env = await self.environment(actor, environment, "create")
-        test = next((t for t in self.cfg.catalog.tests if t.id == test_id and t.id in env.tests), None)
+        test = next((t for t in self.scenarios(env) if t.id == test_id), None)
         if not test:
             raise ConsoleError(404, "Test is unavailable in this environment.")
         try:
             env.check_profile(profile)
+            target = target_url(target.strip() or env.targets.get(test.id.split("/", 1)[0], ""), env.allowed_hosts) if test.target else ""
         except ValueError as err:
             raise ConsoleError(422, str(err)) from err
+        chosen = {test.target: target} if target else {}
         async with self.archivers:
-            bundle = await self.bundle(self.cfg.scripts_dir, test.script, {**test.env, **profile.variables()})
+            bundle = await self.bundle(self.cfg.scripts_dir, test.script, {**test.env, **chosen, **profile.variables()}, test.bundle)
         now = datetime.now(UTC)
         name = f"k6-ui-{now:%Y%m%d-%H%M%S}-{secrets.token_hex(4)}"
-        record = {"name": name, "environment": env.name, "test": test.id, "label": test.label,
+        record = {"name": name, "environment": env.name, "test": test.id, "label": test.label, "target": target,
                   "created": now.isoformat(), "actor": actor["user"], "profile": profile.model_dump(),
                   "archive_sha256": hashlib.sha256(bundle).hexdigest(), "status": "starting", "runners": [], "logs": ""}
         if env.grafana_url:
@@ -113,7 +170,8 @@ class Console:
                            "automountServiceAccountToken": "false",
                            "securityContext": {"runAsNonRoot": True, "runAsUser": 12345, "seccompProfile": {"type": "RuntimeDefault"}},
                            "containerSecurityContext": {"allowPrivilegeEscalation": False, "capabilities": {"drop": ["ALL"]}},
-                           "env": [{"name": "K6_NO_USAGE_REPORT", "value": "true"}]},
+                           # Set explicitly, the chosen target wins over the same key in the env Secret.
+                           "env": [{"name": "K6_NO_USAGE_REPORT", "value": "true"}, *({"name": k, "value": v} for k, v in chosen.items())]},
                 "starter": {"image": "ghcr.io/grafana/k6-operator:starter-v1.6.0@sha256:b97b8e32867a553b7f866acd1e0a2ac91af81480c04c12a6ee55df3ae99d2ad6",
                             "automountServiceAccountToken": "false",
                             "securityContext": {"runAsNonRoot": True, "seccompProfile": {"type": "RuntimeDefault"}},

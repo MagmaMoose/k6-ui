@@ -1,5 +1,6 @@
 import asyncio
 import hmac
+import re
 import secrets
 from contextlib import asynccontextmanager
 from typing import Annotated
@@ -13,13 +14,14 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field
 
 from .archive import ArchiveError
-from .config import Branding, Config, Profile, NAME
+from .config import Branding, Config, Profile, SCENARIO
 from .entra import Entra
 from .kube import Kube, KubeError
 from .oidc import SignInError
 from .service import Console, ConsoleError
 from .session import Cookies, Sealer
 
+SOURCE = "https://github.com/MagmaMoose/k6-ui"
 CSP = "; ".join(["default-src 'none'", "script-src 'self'", "style-src 'self'", "img-src 'self' data:", "font-src 'self'", "connect-src 'self'", "base-uri 'none'", "form-action 'self'", "frame-ancestors 'none'"])
 
 def theme_css(brand: Branding) -> str:
@@ -33,6 +35,14 @@ def theme_css(brand: Branding) -> str:
     dark = rules(brand.accent_dark or brand.accent, brand.accent_text_dark or brand.accent_text, 14)
     return (f"html:root{{{light}}}\n" if light else "") + (f"@media (prefers-color-scheme: dark){{html:root{{{dark}}}}}\n" if dark else "")
 
+def release_notes(version: str) -> str | None:
+    """Where a version's changes are written up: its GitHub release, or the pull request it was built from."""
+    if re.fullmatch(r"v[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?", version):
+        return f"{SOURCE}/releases/tag/{version}"
+    if found := re.fullmatch(r"pr-([0-9]+)", version):
+        return f"{SOURCE}/pull/{found.group(1)}"
+    return None
+
 def favicon_svg(brand: Branding) -> str:
     tile, glyph = brand.accent or "#0f766e", brand.accent_text or "#ffffff"
     return f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><rect width="32" height="32" rx="8" fill="{tile}"/><path d="M7 21l6-12v12l6-12v12l6-12" fill="none" stroke="{glyph}" stroke-width="2.5" stroke-linejoin="round"/></svg>'
@@ -40,8 +50,9 @@ def favicon_svg(brand: Branding) -> str:
 
 class Start(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    test: str = Field(pattern=NAME)
+    test: str = Field(pattern=SCENARIO, max_length=300)
     profile: Profile
+    target: str = Field(default="", max_length=2048)
 
 
 def create_app(cfg: Config, transport=None, kube=None, bundle=None):
@@ -124,8 +135,7 @@ def create_app(cfg: Config, transport=None, kube=None, bundle=None):
 
     @app.get("/readyz")
     async def ready():
-        root = cfg.scripts_dir.resolve()
-        if not all((root / t.script).is_file() and (root / t.script).resolve().is_relative_to(root) for t in cfg.catalog.tests):
+        if not console.ready():
             return JSONResponse({"status": "scripts unavailable"}, 503)
         return {"status": "ok"}
 
@@ -174,7 +184,7 @@ def create_app(cfg: Config, transport=None, kube=None, bundle=None):
     @app.get("/api/me")
     async def me(actor: Session):
         return {"name": actor.get("name") or actor.get("upn"), "csrf": actor["csrf"], "version": cfg.version,
-                "environments": await console.catalog(actor)}
+                "release_notes": release_notes(cfg.version), "environments": await console.catalog(actor)}
 
     @app.get("/api/environments/{environment}/runs")
     async def history(environment: str, actor: Session):
@@ -182,7 +192,7 @@ def create_app(cfg: Config, transport=None, kube=None, bundle=None):
 
     @app.post("/api/environments/{environment}/runs", status_code=201)
     async def start(environment: str, body: Start, actor: Writable):
-        return await console.start(actor, environment, body.test, body.profile)
+        return await console.start(actor, environment, body.test, body.profile, body.target)
 
     @app.get("/api/environments/{environment}/runs/{name}")
     async def detail(environment: str, name: str, actor: Session):

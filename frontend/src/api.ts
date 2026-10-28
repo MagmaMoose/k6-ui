@@ -1,8 +1,9 @@
 export type Profile = { vus: number; parallelism: number; ramp: string; duration: string; ramp_down: string };
-export type Test = { id: string; label: string; description: string };
-export type Environment = { name: string; label: string; tests: Test[]; defaults: Profile; max_vus: number; max_parallelism: number; can_run: boolean };
-export type Me = { name: string; csrf: string; version: string; environments: Environment[] };
-export type Run = { name: string; environment: string; test: string; label: string; created: string; finished?: string; actor: string; status: string; profile: Profile; archive_sha256: string; grafana?: string; logs?: string; runners: { name: string; phase: string; exit_code: number | null }[] };
+// target: the default target URL, or null when the scenario takes no target.
+export type Test = { id: string; label: string; group: string; description: string; note: string; target: string | null };
+export type Environment = { name: string; label: string; tests: Test[]; defaults: Profile; max_vus: number; max_parallelism: number; can_run: boolean; allowed_hosts: string[] };
+export type Me = { name: string; csrf: string; version: string; release_notes: string | null; environments: Environment[] };
+export type Run = { name: string; environment: string; test: string; label: string; target?: string; created: string; finished?: string; actor: string; status: string; profile: Profile; archive_sha256: string; grafana?: string; logs?: string; runners: { name: string; phase: string; exit_code: number | null }[] };
 
 export class ApiError extends Error {
   constructor(public status: number, message: string) { super(message); }
@@ -27,6 +28,6 @@ export const api = {
   logout: () => request("/auth/logout", "POST"),
   history: (env: string, signal?: AbortSignal) => request<{ runs: Run[] }>(base(env), "GET", undefined, signal),
   detail: (env: string, name: string, signal?: AbortSignal) => request<Run>(`${base(env)}/${encodeURIComponent(name)}`, "GET", undefined, signal),
-  start: (env: string, test: string, profile: Profile) => request<Run>(base(env), "POST", { test, profile }),
+  start: (env: string, test: string, profile: Profile, target: string) => request<Run>(base(env), "POST", { test, profile, target }),
   stop: (env: string, name: string) => request<Run>(`${base(env)}/${encodeURIComponent(name)}/stop`, "POST"),
 };

@@ -15,6 +15,7 @@ class Bundle(BaseModel):
     model_config = ConfigDict(extra="forbid")
     script: str = Field(min_length=1, max_length=300)
     variables: dict[Annotated[str, Field(pattern=r"^[A-Z][A-Z0-9_]{0,63}$")], Annotated[str, Field(max_length=2048)]] = Field(max_length=64)
+    bundle: bool = False
 
 
 def create_archiver(root: Path, builder=archive):
@@ -29,7 +30,7 @@ def create_archiver(root: Path, builder=archive):
     async def bundle(body: Bundle):
         try:
             async with slots:
-                content = await builder(root, body.script, body.variables)
+                content = await builder(root, body.script, body.variables, body.bundle)
         except (ArchiveError, TimeoutError):
             return Response(status_code=422)
         return Response(content, media_type="application/octet-stream")
