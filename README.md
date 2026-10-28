@@ -67,7 +67,7 @@ catalog:
         suites: [http]
         tests: [checkout]
         targets:
-          http: https://shop.dev.example.com
+          http: [https://shop.dev.example.com, https://shop-preview.dev.example.com]
           checkout: https://checkout.dev.example.com
         allowed_hosts: ["*.dev.example.com"]
         grafana_url: https://grafana.example.com
@@ -85,7 +85,7 @@ scripts:
       name: loadtest-scripts
 ```
 
-`target` names the variable a scenario reads its target from, and `targets` sets each suite's or test's default per environment. A person may replace it with an `http(s)` URL without credentials, query or fragment whose host matches `allowed_hosts`. The chosen target also overrides the same key in the Secret. Provision `loadtest-dev` in the `loadtest` namespace with the credentials your scripts read. An external test environment uses another Secret, and its hosts must be reachable from the runner network. Credentials stay out of the catalog and archives. Supply non-secret flags that affect frozen options, such as TLS validation, in a test's `env` map. Do not use remote imports carrying authentication in their URLs.
+`target` names the variable a scenario reads its target from, and `targets` sets each suite's or test's default per environment. A list offers several known targets in a picker, first one preselected, for instance each deployment of the same app. A person may replace it with an `http(s)` URL without credentials, query or fragment whose host matches `allowed_hosts`. The chosen target also overrides the same key in the Secret. Provision `loadtest-dev` in the `loadtest` namespace with the credentials your scripts read. An external test environment uses another Secret, and its hosts must be reachable from the runner network. Credentials stay out of the catalog and archives. Supply non-secret flags that affect frozen options, such as TLS validation, in a test's `env` map. Do not use remote imports carrying authentication in their URLs.
 
 Environment defaults make a defined test a single click. Limits apply on the server as well as in the browser: virtual users, runner count, positive hold duration and at most one hour of load. Kubernetes quotas remain the cluster-wide load budget. Run output is available to people who may read TestRuns in that environment, so test scripts must never print credentials or personal data.
 

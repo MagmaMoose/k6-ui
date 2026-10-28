@@ -68,7 +68,8 @@ def test_target_is_chosen_within_allowed_hosts(setup):
     assert len(captured) == 1
     scenario = client.get("/api/me").json()["environments"][0]["tests"][0]
     assert scenario == {"id": "http/smoke.js", "label": "smoke", "group": "HTTP", "description": "HTTP smoke: request the target.",
-                        "note": "Requests the target without signing in.", "target": "https://app.dev.example.com"}
+                        "note": "Requests the target without signing in.", "target": "https://app.dev.example.com",
+                        "targets": ["https://app.dev.example.com", "https://api.dev.example.com"]}
 
 
 def test_scenarios_are_discovered_without_escaping_the_scripts(setup, tmp_path):

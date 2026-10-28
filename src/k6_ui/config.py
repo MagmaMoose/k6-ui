@@ -6,6 +6,8 @@ from pathlib import Path, PurePosixPath
 from urllib.parse import urlsplit
 
 import yaml
+from typing import Annotated
+
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 NAME = r"^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$"
@@ -115,7 +117,7 @@ class Environment(BaseModel):
     secret: str = Field(default="", max_length=253)
     tests: list[str] = Field(default_factory=list)
     suites: list[str] = Field(default_factory=list)
-    targets: dict[str, str] = Field(default_factory=dict)
+    targets: dict[str, str | Annotated[list[str], Field(min_length=1, max_length=20)]] = Field(default_factory=dict)
     allowed_hosts: list[str] = Field(default_factory=list, max_length=50)
     groups: list[str] = Field(default_factory=list)
     defaults: Profile = Field(default_factory=Profile)
@@ -131,16 +133,22 @@ class Environment(BaseModel):
             raise ValueError("An environment needs at least one test or suite.")
         if any(not re.fullmatch(r"[a-z0-9*?.-]{1,253}", h) for h in self.allowed_hosts):
             raise ValueError("Allowed hosts are lowercase host names; * and ? match any characters.")
-        for name, url in self.targets.items():
+        for name in self.targets:
             if name not in self.tests + self.suites:
                 raise ValueError(f"Target {name} names no test or suite of this environment.")
-            target_url(url, self.allowed_hosts)
+            for url in self.choices(name):
+                target_url(url, self.allowed_hosts)
         if self.grafana_url:
             parts = urlsplit(self.grafana_url)
             if parts.scheme != "https" or not parts.hostname or parts.username or parts.query or parts.fragment:
                 raise ValueError("Grafana URL must use HTTPS without credentials, query or fragment.")
         self.check_profile(self.defaults)
         return self
+
+    def choices(self, scenario: str) -> list[str]:
+        """The known targets of a test, or of suite scenario `<suite>/<script>`; the first is the default."""
+        value = self.targets.get(scenario.split("/", 1)[0], [])
+        return [value] if isinstance(value, str) else value
 
     def check_profile(self, profile: Profile):
         if profile.vus > self.max_vus or profile.parallelism > self.max_parallelism:

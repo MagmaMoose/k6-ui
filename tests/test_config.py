@@ -28,7 +28,11 @@ def test_suites_stay_inside_scripts_and_targets_stay_on_allowed_hosts():
     suite = Suite(id="http", label="HTTP", target="BASE_URL")
     env = {"name": "dev", "label": "Development", "suites": ["http"], "allowed_hosts": ["*.dev.example.com"]}
     Catalog(suites=[suite], environments=[Environment(**env, targets={"http": "https://app.dev.example.com/path"})])
-    for targets in [{"http": "https://app.prd.example.com"}, {"http": "https://user:pw@app.dev.example.com"}, {"http": "ftp://app.dev.example.com"}, {"missing": "https://app.dev.example.com"}]:
+    listed = Environment(**env, targets={"http": ["https://app.dev.example.com", "https://preview-1.dev.example.com"]})
+    assert listed.choices("http/smoke.js") == ["https://app.dev.example.com", "https://preview-1.dev.example.com"]
+    assert Environment(**env, targets={"http": "https://app.dev.example.com"}).choices("http/smoke.js") == ["https://app.dev.example.com"]
+    for targets in [{"http": "https://app.prd.example.com"}, {"http": "https://user:pw@app.dev.example.com"}, {"http": "ftp://app.dev.example.com"}, {"missing": "https://app.dev.example.com"},
+                    {"http": ["https://app.dev.example.com", "https://app.prd.example.com"]}, {"http": []}]:
         with pytest.raises(ValidationError): Environment(**env, targets=targets)
     with pytest.raises(ValidationError): Environment(name="dev", label="Development")
     with pytest.raises(ValidationError): Catalog(suites=[suite], environments=[Environment(**{**env, "suites": ["missing"]})])

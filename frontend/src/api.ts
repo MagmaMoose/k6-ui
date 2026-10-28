@@ -1,6 +1,6 @@
 export type Profile = { vus: number; parallelism: number; ramp: string; duration: string; ramp_down: string };
 // target: the default target URL, or null when the scenario takes no target.
-export type Test = { id: string; label: string; group: string; description: string; note: string; target: string | null };
+export type Test = { id: string; label: string; group: string; description: string; note: string; target: string | null; targets: string[] };
 export type Environment = { name: string; label: string; tests: Test[]; defaults: Profile; max_vus: number; max_parallelism: number; can_run: boolean; allowed_hosts: string[] };
 export type Me = { name: string; csrf: string; version: string; release_notes: string | null; environments: Environment[] };
 export type Run = { name: string; environment: string; test: string; label: string; target?: string; created: string; finished?: string; actor: string; status: string; profile: Profile; archive_sha256: string; grafana?: string; logs?: string; runners: { name: string; phase: string; exit_code: number | null }[] };
