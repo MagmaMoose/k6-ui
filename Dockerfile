@@ -9,7 +9,7 @@ FROM --platform=$BUILDPLATFORM node:25-slim@sha256:81db02c4b671288a03915da9534db
 ARG TARGETARCH
 WORKDIR /esbuild
 RUN arch=$([ "$TARGETARCH" = amd64 ] && echo x64 || echo "$TARGETARCH") \
- && npm install --no-save --no-audit --no-fund --ignore-scripts --os=linux --cpu="$arch" "@esbuild/linux-$arch@0.28.2" \
+ && npm install --no-save --no-audit --no-fund --ignore-scripts --os=linux --cpu="$arch" esbuild@0.28.2 \
  && cp "node_modules/@esbuild/linux-$arch/bin/esbuild" /esbuild/esbuild
 
 FROM grafana/k6:2.3.0@sha256:9c2dee7f8ed74d317e4027c06a10f169b625638189de8d4555d0b3486a5aeb34 AS k6
