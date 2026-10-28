@@ -1,7 +1,8 @@
 import os
 import re
 from dataclasses import dataclass, field
-from pathlib import Path
+from fnmatch import fnmatch
+from pathlib import Path, PurePosixPath
 from urllib.parse import urlsplit
 
 import yaml
@@ -9,12 +10,41 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 NAME = r"^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$"
 DURATION = r"^(?:[0-9]+h)?(?:[0-9]+m)?(?:[0-9]+s)?$"
+VARIABLE = r"^([A-Z][A-Z0-9_]{0,63})?$"
+SCENARIO = r"^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(/[A-Za-z0-9_.-]+){0,8}$"
+LOAD = {"VUS", "RAMP", "DURATION", "RAMP_DOWN"}
 
 
 def seconds(value: str) -> int:
     if not value or not re.fullmatch(DURATION, value):
         raise ValueError("Use a duration such as 90s, 2m or 1h30m.")
     return sum(int(n) * {"h": 3600, "m": 60, "s": 1}[u] for n, u in re.findall(r"([0-9]+)([hms])", value))
+
+
+def relative(path: str) -> str:
+    if Path(path).is_absolute() or ".." in PurePosixPath(path).parts:
+        raise ValueError("Script paths must stay inside the scripts directory.")
+    return path
+
+
+def check_env(env: dict[str, str], target: str):
+    for key, value in env.items():
+        if not re.fullmatch(r"[A-Z][A-Z0-9_]{0,63}", key) or re.search(r"SECRET|PASSWORD|TOKEN|CREDENTIAL|API_KEY", key):
+            raise ValueError("Test env accepts non-secret configuration only. Use a Kubernetes Secret for credentials.")
+        if key in LOAD or len(value) > 2048:
+            raise ValueError("Test env cannot override the load profile.")
+    if target in LOAD or re.search(r"SECRET|PASSWORD|TOKEN|CREDENTIAL|API_KEY", target):
+        raise ValueError("A target variable cannot be a load or credential setting.")
+
+
+def target_url(value: str, allowed: list[str]) -> str:
+    """The URL a run may load: http(s), no credentials, and a host the environment allows."""
+    parts = urlsplit(value)
+    if parts.scheme not in ("http", "https") or not parts.hostname or parts.username or parts.password or parts.query or parts.fragment or len(value) > 2048:
+        raise ValueError("Enter the target as an http(s) URL without credentials, query or fragment.")
+    if not any(fnmatch(parts.hostname, pattern) for pattern in allowed):
+        raise ValueError(f"{parts.hostname} is not an allowed target in this environment.")
+    return value
 
 
 class Profile(BaseModel):
@@ -46,16 +76,34 @@ class Test(BaseModel):
     description: str = Field(default="", max_length=500)
     script: str = Field(min_length=1, max_length=300)
     env: dict[str, str] = Field(default_factory=dict)
+    target: str = Field(default="", pattern=VARIABLE)
+    bundle: bool = False
 
     @model_validator(mode="after")
     def valid(self):
-        if Path(self.script).is_absolute() or ".." in Path(self.script).parts:
-            raise ValueError("Script must be a relative path inside the scripts directory.")
-        for key, value in self.env.items():
-            if not re.fullmatch(r"[A-Z][A-Z0-9_]{0,63}", key) or re.search(r"SECRET|PASSWORD|TOKEN|CREDENTIAL|API_KEY", key):
-                raise ValueError("Test env accepts non-secret configuration only. Use a Kubernetes Secret for credentials.")
-            if key in {"VUS", "RAMP", "DURATION", "RAMP_DOWN"} or len(value) > 2048:
-                raise ValueError("Test env cannot override the load profile.")
+        relative(self.script)
+        check_env(self.env, self.target)
+        return self
+
+
+class Suite(BaseModel):
+    """Every script matching `include` under `directory` is a scenario, so new scripts need no catalog change."""
+    model_config = ConfigDict(extra="forbid")
+    id: str = Field(pattern=NAME)
+    label: str = Field(min_length=1, max_length=120)
+    directory: str = Field(default=".", min_length=1, max_length=300)
+    include: list[str] = Field(default_factory=lambda: ["*.js"], min_length=1, max_length=20)
+    exclude: list[str] = Field(default_factory=list, max_length=20)
+    note: str = Field(default="", max_length=500)
+    env: dict[str, str] = Field(default_factory=dict)
+    target: str = Field(default="", pattern=VARIABLE)
+    bundle: bool = False
+
+    @model_validator(mode="after")
+    def valid(self):
+        for path in [self.directory, *self.include, *self.exclude]:
+            relative(path)
+        check_env(self.env, self.target)
         return self
 
 
@@ -65,7 +113,10 @@ class Environment(BaseModel):
     label: str = Field(min_length=1, max_length=120)
     namespace: str = Field(default="loadtest", pattern=NAME)
     secret: str = Field(default="", max_length=253)
-    tests: list[str] = Field(min_length=1)
+    tests: list[str] = Field(default_factory=list)
+    suites: list[str] = Field(default_factory=list)
+    targets: dict[str, str] = Field(default_factory=dict)
+    allowed_hosts: list[str] = Field(default_factory=list, max_length=50)
     groups: list[str] = Field(default_factory=list)
     defaults: Profile = Field(default_factory=Profile)
     max_vus: int = Field(default=1000, ge=1, le=10000)
@@ -76,6 +127,14 @@ class Environment(BaseModel):
     def valid(self):
         if self.secret and not re.fullmatch(r"[a-z0-9]([a-z0-9.-]*[a-z0-9])?", self.secret):
             raise ValueError("Secret must be a Kubernetes name.")
+        if not self.tests and not self.suites:
+            raise ValueError("An environment needs at least one test or suite.")
+        if any(not re.fullmatch(r"[a-z0-9*?.-]{1,253}", h) for h in self.allowed_hosts):
+            raise ValueError("Allowed hosts are lowercase host names; * and ? match any characters.")
+        for name, url in self.targets.items():
+            if name not in self.tests + self.suites:
+                raise ValueError(f"Target {name} names no test or suite of this environment.")
+            target_url(url, self.allowed_hosts)
         if self.grafana_url:
             parts = urlsplit(self.grafana_url)
             if parts.scheme != "https" or not parts.hostname or parts.username or parts.query or parts.fragment:
@@ -90,17 +149,18 @@ class Environment(BaseModel):
 
 class Catalog(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    tests: list[Test] = Field(min_length=1)
+    tests: list[Test] = Field(default_factory=list)
+    suites: list[Suite] = Field(default_factory=list)
     environments: list[Environment] = Field(min_length=1)
 
     @model_validator(mode="after")
     def valid(self):
-        ids = [t.id for t in self.tests]
+        ids = [t.id for t in self.tests] + [s.id for s in self.suites]
         names = [e.name for e in self.environments]
         if len(set(ids)) != len(ids) or len(set(names)) != len(names):
-            raise ValueError("Test IDs and environment names must be unique.")
-        if any(set(e.tests) - set(ids) for e in self.environments):
-            raise ValueError("Every environment test must exist in the catalog.")
+            raise ValueError("Test and suite IDs and environment names must be unique.")
+        if any(set(e.tests) - {t.id for t in self.tests} or set(e.suites) - {s.id for s in self.suites} for e in self.environments):
+            raise ValueError("Every environment test and suite must exist in the catalog.")
         return self
 
     @classmethod

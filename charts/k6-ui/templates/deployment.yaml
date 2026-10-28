@@ -76,6 +76,9 @@ spec:
               path: /healthz
               port: http
           env:
+            # The deployed tag: a release promotes its pull request's image, whose baked-in version is pr-<N>.
+            - name: APP_VERSION
+              value: {{ .Values.image.tag | default .Chart.AppVersion | quote }}
             - name: K6_UI_PUBLIC_ORIGIN
               value: {{ required "config.publicOrigin is required" .Values.config.publicOrigin | quote }}
             - name: K6_UI_CATALOG

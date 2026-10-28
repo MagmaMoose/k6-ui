@@ -1,3 +1,4 @@
+// HTTP smoke: request the target and check its response time.
 import http from 'k6/http';
 import { check, sleep } from 'k6';
 
@@ -18,7 +19,7 @@ export const options = {
 };
 
 export function setup() {
-  if (!__ENV.BASE_URL) throw new Error('Set BASE_URL in the environment Secret.');
+  if (!__ENV.BASE_URL) throw new Error('BASE_URL is not set: choose a target.');
 }
 
 export default function () {

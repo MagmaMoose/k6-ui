@@ -1,13 +1,17 @@
-tests:
-  - id: smoke
-    label: HTTP smoke
-    description: Send requests to the configured target and check its response time.
-    script: smoke.js
+suites:
+  - id: http
+    label: HTTP
+    note: Requests the target without signing in.
+    include: ["*.js"]
+    target: BASE_URL
 environments:
   - name: dev
     label: Development
     secret: loadtest-dev
-    tests: [smoke]
+    suites: [http]
+    targets:
+      http: https://app.dev.example.com
+    allowed_hosts: ["*.dev.example.com"]
     grafana_url: https://grafana.example.com
     defaults:
       vus: 20
@@ -18,6 +22,9 @@ environments:
   - name: external-test
     label: External test environment
     secret: loadtest-external
-    tests: [smoke]
+    suites: [http]
+    targets:
+      http: https://test.example.net
+    allowed_hosts: [test.example.net]
     groups: ["oidc:qa"]
     grafana_url: https://grafana.example.com

@@ -2,13 +2,13 @@
 
 Run your team's defined k6 load tests from a browser. Select an environment and scenario, adjust virtual users, runner count and timing, then click **Run test**. Watch runner output, stop a run, or open its metrics in Grafana.
 
-The same console works for services inside Kubernetes and targets outside it. Targets are deployment configuration: a scenario reads its target and credentials from an environment's Kubernetes Secret. The browser cannot choose arbitrary URLs, credentials, scripts or Kubernetes resources.
+The same console works for services inside Kubernetes and targets outside it. Scenarios come from your synced script repositories, so a new script appears without a deployment change. Each environment lists the hosts a run may target; people can change a scenario's target within that list. Credentials stay in the environment's Kubernetes Secret. The browser cannot choose scripts, credentials, Kubernetes resources or hosts outside the list.
 
 ## How it works
 
 A FastAPI backend serves a React/TypeScript frontend. Microsoft Entra ID signs people in through authorization code flow with PKCE. Encrypted, expiring cookies work across replicas. Every operation checks Kubernetes RBAC for the signed-in user and groups; optional catalog groups narrow access further.
 
-Before creating a `k6.io/v1alpha1` TestRun, a separate archiver container runs `k6 archive` with the chosen `VUS`, `RAMP`, `DURATION` and `RAMP_DOWN`. k6 freezes script options during archiving, so setting them only on runner pods would run the wrong load. The archiver receives a clean process environment and mounts only scripts and temporary storage. Kubernetes tokens, sign-in credentials and session keys are mounted only in the web container. Its loopback archive endpoint is not exposed by the Service or Ingress. Runner pods receive credentials through `envFrom.secretRef`; the server has no Secret-read permission.
+Before creating a `k6.io/v1alpha1` TestRun, a separate archiver container runs `k6 archive` with the chosen `VUS`, `RAMP`, `DURATION`, `RAMP_DOWN` and target. k6 freezes script options during archiving, so setting them only on runner pods would run the wrong load. The archiver receives a clean process environment and mounts only scripts and temporary storage. Kubernetes tokens, sign-in credentials and session keys are mounted only in the web container. Its loopback archive endpoint is not exposed by the Service or Ingress. Runner pods receive credentials through `envFrom.secretRef`; the server has no Secret-read permission.
 
 The archive, including relative imports, reaches the operator through a ConfigMap. Run IDs become `testid` tags. The cluster's existing k6 platform configuration supplies remote write and target routing. The console saves all runner exit codes and bounded output before deleting the TestRun and its pods. A failed threshold is a failed test. History stays in Kubernetes for seven days by default, survives restarts, and is then removed automatically. Cancelling retains the run record.
 
@@ -29,7 +29,11 @@ Register the callback `https://loadtest.example.com/auth/callback` on the Entra 
 
 ### Defined tests and environments
 
-See [examples/catalog.yaml](examples/catalog.yaml) and [examples/scripts/smoke.js](examples/scripts/smoke.js). Put your private catalog under `catalog.content` in chart values. Mount trusted scripts under `/scripts` through `scripts.volume`, or use `extraContainers` and `extraVolumes` for your existing source-sync sidecar. An application readiness check waits for every catalog script to exist. TypeScript suites must be compiled by their owner before being mounted; the console accepts k6-compatible JavaScript and its imports.
+See [examples/catalog.yaml](examples/catalog.yaml) and [examples/scripts/smoke.js](examples/scripts/smoke.js). Put your private catalog under `catalog.content` in chart values. Mount trusted scripts under `/scripts` through `scripts.volume`, or use `extraContainers` and `extraVolumes` for your existing source-sync sidecars, one per repository.
+
+A suite offers every script under `directory` that matches its `include` globs and none of its `exclude` patterns. A script's first comment line becomes its description. A test names one script, for a suite with a single entry point. Scripts that don't exist yet, such as a repository's unmerged work, are left out of the list rather than failing readiness, so give each sync sidecar its own readiness probe.
+
+k6 runs TypeScript when imports name their files. For code written for a bundler, with imports like `./config`, set `bundle: true` and the archiver bundles the script with esbuild first. `k6` modules stay external.
 
 ```yaml
 fullnameOverride: k6-ui
@@ -40,18 +44,32 @@ config:
   publicOrigin: https://loadtest.example.com
 catalog:
   content:
-    tests:
-      - id: smoke
-        label: HTTP smoke
-        script: smoke.js
+    suites:
+      - id: http
+        label: HTTP
+        directory: shop/current/scenarios
+        include: ["*.js", "**/*.js"]
+        exclude: ["_*"]
+        target: BASE_URL
         env:
           TLS_VERIFY: "true"
+    tests:
+      - id: checkout
+        label: Checkout journey
+        script: checkout/current/src/main.ts
+        bundle: true
+        target: BASE_URL
     environments:
       - name: dev
         label: Development
         namespace: loadtest
         secret: loadtest-dev
-        tests: [smoke]
+        suites: [http]
+        tests: [checkout]
+        targets:
+          http: https://shop.dev.example.com
+          checkout: https://checkout.dev.example.com
+        allowed_hosts: ["*.dev.example.com"]
         grafana_url: https://grafana.example.com
         defaults:
           vus: 20
@@ -67,7 +85,7 @@ scripts:
       name: loadtest-scripts
 ```
 
-Provision `loadtest-dev` in the `loadtest` namespace with `BASE_URL` and the credentials your script reads. An external test environment uses another Secret whose target the runner network can reach. Credentials stay out of the catalog and archives. Supply non-secret flags that affect frozen options, such as TLS validation, in a test's `env` map. Do not use remote imports carrying authentication in their URLs.
+`target` names the variable a scenario reads its target from, and `targets` sets each suite's or test's default per environment. A person may replace it with an `http(s)` URL without credentials, query or fragment whose host matches `allowed_hosts`. The chosen target also overrides the same key in the Secret. Provision `loadtest-dev` in the `loadtest` namespace with the credentials your scripts read. An external test environment uses another Secret, and its hosts must be reachable from the runner network. Credentials stay out of the catalog and archives. Supply non-secret flags that affect frozen options, such as TLS validation, in a test's `env` map. Do not use remote imports carrying authentication in their URLs.
 
 Environment defaults make a defined test a single click. Limits apply on the server as well as in the browser: virtual users, runner count, positive hold duration and at most one hour of load. Kubernetes quotas remain the cluster-wide load budget. Run output is available to people who may read TestRuns in that environment, so test scripts must never print credentials or personal data.
 

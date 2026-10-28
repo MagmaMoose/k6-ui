@@ -31,8 +31,29 @@
           "items": {
             "type": "string"
           },
-          "minItems": 1,
           "title": "Tests",
+          "type": "array"
+        },
+        "suites": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Suites",
+          "type": "array"
+        },
+        "targets": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "Targets",
+          "type": "object"
+        },
+        "allowed_hosts": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 50,
+          "title": "Allowed Hosts",
           "type": "array"
         },
         "groups": {
@@ -67,8 +88,7 @@
       },
       "required": [
         "name",
-        "label",
-        "tests"
+        "label"
       ],
       "title": "Environment",
       "type": "object"
@@ -109,6 +129,77 @@
       "title": "Profile",
       "type": "object"
     },
+    "Suite": {
+      "additionalProperties": false,
+      "description": "Every script matching `include` under `directory` is a scenario, so new scripts need no catalog change.",
+      "properties": {
+        "id": {
+          "pattern": "^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$",
+          "title": "Id",
+          "type": "string"
+        },
+        "label": {
+          "maxLength": 120,
+          "minLength": 1,
+          "title": "Label",
+          "type": "string"
+        },
+        "directory": {
+          "default": ".",
+          "maxLength": 300,
+          "minLength": 1,
+          "title": "Directory",
+          "type": "string"
+        },
+        "include": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 20,
+          "minItems": 1,
+          "title": "Include",
+          "type": "array"
+        },
+        "exclude": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 20,
+          "title": "Exclude",
+          "type": "array"
+        },
+        "note": {
+          "default": "",
+          "maxLength": 500,
+          "title": "Note",
+          "type": "string"
+        },
+        "env": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "Env",
+          "type": "object"
+        },
+        "target": {
+          "default": "",
+          "pattern": "^([A-Z][A-Z0-9_]{0,63})?$",
+          "title": "Target",
+          "type": "string"
+        },
+        "bundle": {
+          "default": false,
+          "title": "Bundle",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "id",
+        "label"
+      ],
+      "title": "Suite",
+      "type": "object"
+    },
     "Test": {
       "additionalProperties": false,
       "properties": {
@@ -141,6 +232,17 @@
           },
           "title": "Env",
           "type": "object"
+        },
+        "target": {
+          "default": "",
+          "pattern": "^([A-Z][A-Z0-9_]{0,63})?$",
+          "title": "Target",
+          "type": "string"
+        },
+        "bundle": {
+          "default": false,
+          "title": "Bundle",
+          "type": "boolean"
         }
       },
       "required": [
@@ -206,8 +308,14 @@
                   "items": {
                     "$ref": "#/$defs/Test"
                   },
-                  "minItems": 1,
                   "title": "Tests",
+                  "type": "array"
+                },
+                "suites": {
+                  "items": {
+                    "$ref": "#/$defs/Suite"
+                  },
+                  "title": "Suites",
                   "type": "array"
                 },
                 "environments": {
@@ -220,7 +328,6 @@
                 }
               },
               "required": [
-                "tests",
                 "environments"
               ],
               "title": "Catalog",

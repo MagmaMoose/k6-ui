@@ -3,10 +3,10 @@ import json
 from datetime import UTC, datetime, timedelta
 
 from conftest import ACTOR, pod
-from k6_ui.config import Profile
-from k6_ui.service import core, runs
+from k6_ui.config import Catalog, Environment, Profile, Suite, Test as Explicit
+from k6_ui.service import Console, core, runs
 
-BODY = {"test": "smoke", "profile": {"vus": 1000, "parallelism": 4, "ramp": "90s", "duration": "2m", "ramp_down": "20s"}}
+BODY = {"test": "http/smoke.js", "profile": {"vus": 1000, "parallelism": 4, "ramp": "90s", "duration": "2m", "ramp_down": "20s"}}
 HEADERS = {"Origin": "http://localhost", "X-CSRF-Token": "test-csrf"}
 
 
@@ -19,10 +19,12 @@ def start(client, body=BODY):
 def test_start_bundles_load_without_credentials_and_uses_secret_reference(setup):
     app, client, kube, captured = setup
     record = start(client)
-    assert captured[0][2] == {"VUS": "1000", "RAMP": "90s", "DURATION": "2m", "RAMP_DOWN": "20s"}
+    assert captured[0][1:] == ("smoke.js", {"BASE_URL": "https://app.dev.example.com", "VUS": "1000", "RAMP": "90s", "DURATION": "2m", "RAMP_DOWN": "20s"}, False)
     run = kube.objects[runs("loadtest") + "/" + record["name"]]
     assert run["spec"]["parallelism"] == 4
     assert run["spec"]["runner"]["envFrom"] == [{"secretRef": {"name": "loadtest-dev"}}]
+    assert {"name": "BASE_URL", "value": "https://app.dev.example.com"} in run["spec"]["runner"]["env"]
+    assert record["target"] == "https://app.dev.example.com"
     assert run["spec"]["script"]["configMap"]["name"] == record["name"] + "-archive"
     assert run["metadata"]["ownerReferences"][0]["name"] == record["name"]
     assert record["name"] in record["grafana"]
@@ -51,9 +53,45 @@ def test_csrf_and_signed_session_required(setup):
 def test_profile_limits_and_unknown_test_cannot_start(setup):
     _, client, _, captured = setup
     for profile in [{**BODY["profile"], "vus": 1001}, {**BODY["profile"], "vus": 0}, {**BODY["profile"], "parallelism": 5}, {**BODY["profile"], "ramp": "2m; touch /tmp/x"}, {**BODY["profile"], "duration": "0s"}, {**BODY["profile"], "duration": "2h"}]:
-        assert client.post("/api/environments/dev/runs", json={"test": "smoke", "profile": profile}, headers=HEADERS).status_code == 422
+        assert client.post("/api/environments/dev/runs", json={**BODY, "profile": profile}, headers=HEADERS).status_code == 422
     assert client.post("/api/environments/dev/runs", json={**BODY, "test": "missing"}, headers=HEADERS).status_code == 404
     assert not captured
+
+
+def test_target_is_chosen_within_allowed_hosts(setup):
+    _, client, kube, captured = setup
+    record = start(client, {**BODY, "target": "https://api.dev.example.com/v2"})
+    assert captured[0][2]["BASE_URL"] == record["target"] == "https://api.dev.example.com/v2"
+    for target in ["https://api.prd.example.com", "https://user:pw@api.dev.example.com", "file:///etc/passwd", "https://api.dev.example.com/?q=1", "https://api.dev.example.com.evil.net"]:
+        response = client.post("/api/environments/dev/runs", json={**BODY, "target": target}, headers=HEADERS)
+        assert response.status_code == 422, target
+    assert len(captured) == 1
+    scenario = client.get("/api/me").json()["environments"][0]["tests"][0]
+    assert scenario == {"id": "http/smoke.js", "label": "smoke", "group": "HTTP", "description": "HTTP smoke: request the target.",
+                        "note": "Requests the target without signing in.", "target": "https://app.dev.example.com"}
+
+
+def test_scenarios_are_discovered_without_escaping_the_scripts(setup, tmp_path):
+    app, _, _, _ = setup
+    root = tmp_path / "scripts"
+    (root / "suite" / "flows").mkdir(parents=True)
+    (root / "suite" / "a.js").write_text("/**\n * A: first flow.\n */\nexport default function() {}\n")
+    (root / "suite" / "flows" / "b.js").write_text("import http from 'k6/http';\n// not a header\n")
+    (root / "suite" / "_scratch.js").write_text("// scratch\n")
+    (root / "suite" / "notes.txt").write_text("// not a script\n")
+    (root / "suite" / "escape.js").symlink_to(tmp_path / "outside.js")
+    (tmp_path / "outside.js").write_text("// outside\n")
+    (root / "single.js").write_text("// single\n")
+    catalog = Catalog(tests=[Explicit(id="single", label="Single", script="single.js", bundle=True), Explicit(id="later", label="Later", script="later.ts")],
+                      suites=[Suite(id="suite", label="Suite", directory="suite", include=["*.js", "flows/*.js"], exclude=["_*"]),
+                              Suite(id="empty", label="Empty", directory="not-synced")],
+                      environments=[Environment(name="dev", label="Development", tests=["single", "later"], suites=["suite", "empty"])])
+    console = Console(app.state.console.cfg.__class__(**{**app.state.console.cfg.__dict__, "catalog": catalog, "scripts_dir": root}), app.state.console.kube)
+    found = console.scenarios(catalog.environments[0])
+    assert [(s.id, s.label, s.script, s.description) for s in found] == [
+        ("single", "Single", "single.js", ""), ("suite/a.js", "a", "suite/a.js", "A: first flow."), ("suite/flows/b.js", "flows/b", "suite/flows/b.js", "")]
+    assert [s.bundle for s in found] == [True, False, False]
+    assert console.ready()
 
 
 def test_all_runners_must_finish_and_threshold_failure_is_failed(setup):
